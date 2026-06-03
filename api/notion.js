@@ -1,5 +1,5 @@
 // api/notion.js
-// 使用純 CommonJS 語法，支援同步結算紀錄與跨裝置設定雲端備份/載入功能。
+// 【完整終極版】支援純 CommonJS 語法，整合「單筆流水帳同步」與「跨裝置設定雲端備份/載入」功能。
 
 module.exports = async function handler(req, res) {
   // 1. 限制只允許 POST 請求
@@ -147,54 +147,56 @@ module.exports = async function handler(req, res) {
     // ==========================================
     // 功能 C: 原有功能 - 同步單筆月底結算紀錄 (sync_record)
     // ==========================================
-    if (!record) {
-      return res.status(400).json({ error: '缺少要同步的結算紀錄 (record)' });
-    }
-
-    const notionBody = {
-      parent: { database_id: databaseId },
-      properties: {
-        Name: {
-          title: [{ text: { content: `${record.category} ${record.key}` } }]
-        },
-        Month: {
-          rich_text: [{ text: { content: String(record.key) } }]
-        },
-        Category: {
-          select: { name: record.category }
-        },
-        Amount: {
-          number: Number(record.amount) || 0
-        },
-        Note: {
-          rich_text: [{ text: { content: record.note || "" } }]
-        },
-        Source: {
-          select: { name: "JZ Gringotts Bank" } }
-        }
+    if (currentAction === 'sync_record') {
+      if (!record) {
+        return res.status(400).json({ error: '缺少要同步的結算紀錄 (record)' });
       }
-    };
 
-    const notionResponse = await fetch('https://api.notion.com/v1/pages', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Notion-Version': '2022-06-28',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(notionBody)
-    });
+      const notionBody = {
+        parent: { database_id: databaseId },
+        properties: {
+          Name: {
+            title: [{ text: { content: `${record.category} ${record.key}` } }]
+          },
+          Month: {
+            rich_text: [{ text: { content: String(record.key) } }]
+          },
+          Category: {
+            select: { name: record.category }
+          },
+          Amount: {
+            number: Number(record.amount) || 0
+          },
+          Note: {
+            rich_text: [{ text: { content: record.note || "" } }]
+          },
+          Source: {
+            select: { name: "JZ Gringotts Bank" }
+          }
+        }
+      };
 
-    const data = await notionResponse.json();
-
-    if (!notionResponse.ok) {
-      return res.status(notionResponse.status).json({
-        error: 'Notion API 錯誤',
-        details: data
+      const notionResponse = await fetch('https://api.notion.com/v1/pages', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Notion-Version': '2022-06-28',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(notionBody)
       });
-    }
 
-    return res.status(200).json({ success: true, data });
+      const data = await notionResponse.json();
+
+      if (!notionResponse.ok) {
+        return res.status(notionResponse.status).json({
+          error: 'Notion API 錯誤',
+          details: data
+        });
+      }
+
+      return res.status(200).json({ success: true, data });
+    }
 
   } catch (error) {
     console.error('Notion Proxy 發生錯誤:', error);
