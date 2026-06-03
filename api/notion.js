@@ -1,9 +1,10 @@
 // api/notion.js
-// 這段程式碼會執行在 Vercel 的後端伺服器，用來轉發請求給 Notion，完美繞過瀏覽器的 CORS 限制。
+// 使用純 CommonJS 語法，免去 Vercel 的編譯與 ESM 轉換相容性問題。
 
-export default async function handler(req, res) {
-  // 1. 只允許 POST 請求
+module.exports = async function handler(req, res) {
+  // 1. 限制只允許 POST 請求
   if (req.method !== 'POST') {
+    res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
@@ -33,7 +34,7 @@ export default async function handler(req, res) {
           rich_text: [
             {
               text: {
-                content: record.key
+                content: String(record.key)
               }
             }
           ]
@@ -91,7 +92,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true, data });
 
   } catch (error) {
-    console.error('Proxy 發生錯誤:', error);
+    console.error('Notion Proxy 發生錯誤:', error);
     return res.status(500).json({ error: 'Internal Server Error', message: error.message });
   }
-}
+};
