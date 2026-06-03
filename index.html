@@ -343,7 +343,7 @@
           <div class="vault-mark" aria-hidden="true"></div>
           <div>
             <h1>JZ Gringotts Bank</h1>
-            <p class="subtitle">個人專屬古靈閣：財富妖精笑呵呵</p>
+            <p class="subtitle">個人專專屬銀行：預算預測、年度預留、投資試算、月底結算</p>
           </div>
         </div>
         <div class="fx-pill">USD → TWD <strong id="fxRate">載入中</strong><span id="fxSource"></span></div>
@@ -707,6 +707,17 @@
         </div>
         <p class="note" id="notionStatus"></p>
 
+        <!-- 雲端設定同步區塊 -->
+        <div class="band subtle" style="margin-top:20px; border: 1px dashed var(--line); background: rgba(240,231,211,.22);">
+          <h3>☁️ 雲端設定同步（客家跨裝置無痛方案）</h3>
+          <p class="note" style="margin-top: 4px;">您可以將「個人預算、年度稅金、儲蓄計畫、自訂分類」加密打包備份至 Notion 資料庫（系統會自動新增或更新一筆名為 <code style="font-family: monospace; background: var(--surface-2); padding: 2px 4px; border-radius: 4px;">SYSTEM_STATE</code> 的特別紀錄）。換手機或電腦時，只需輸入 API 金鑰，即可一鍵下載同步配置！</p>
+          <div class="actions" style="margin-top: 12px;">
+            <button class="btn" id="backupConfigBtn">📤 備份設定到 Notion</button>
+            <button class="btn secondary" id="restoreConfigBtn">📥 從 Notion 載入設定</button>
+          </div>
+          <p class="note" id="configSyncStatus" style="margin-top:8px; font-weight:700;"></p>
+        </div>
+
         <details>
           <summary>Notion Database 欄位對應</summary>
           <pre id="notionSchema"></pre>
@@ -883,7 +894,6 @@ function activeCategories(){
   return uniqueCategories([...(state.settlementCategories || []), ...recordCategories, "其他"]);
 }
 
-// 二次確認刪除：第一次點擊變成「確認刪除」，3 秒內再點一次才真的刪除，避免誤觸。
 function bindArmedDelete(button, onConfirm){
   const original = button.textContent;
   let timer = null;
@@ -1680,6 +1690,94 @@ $("syncNotion").addEventListener("click", async () => {
   $("notionStatus").innerHTML = failed > 0
     ? `<span class="red">同步未完成：成功 ${success} 筆，失敗 ${failed} 筆。通常代表尚未部署 /api/notion Proxy。</span>`
     : `<span class="green">同步完成：成功 ${success} 筆。</span>`;
+});
+
+// ==========================================
+// 全新功能：雲端設定備份與載入 (Notion Cloud Sync)
+// ==========================================
+$("backupConfigBtn").addEventListener("click", async () => {
+  if(!state.notion.token || !state.notion.databaseId){
+    $("configSyncStatus").innerHTML = '<span class="red">請先填入並儲存 Token 與 Database ID。</span>';
+    return;
+  }
+  
+  $("configSyncStatus").textContent = "正在將配置上傳至 Notion 雲端金庫...";
+  
+  // 僅備份需要跨裝置同步的「配置性設定」，不重複備份歷史 records 與暫時 dailyLogs (避免超過 2000 字元限制)
+  const configToBackup = {
+    base: state.base,
+    taxItems: state.taxItems,
+    investments: state.investments,
+    etf: state.etf,
+    settlementCategories: state.settlementCategories
+  };
+  
+  try {
+    const response = await fetch("/api/notion", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: state.notion.token,
+        databaseId: state.notion.databaseId,
+        action: "save_state",
+        stateStr: JSON.stringify(configToBackup)
+      })
+    });
+    
+    const result = await response.json();
+    if (response.ok && result.success) {
+      $("configSyncStatus").innerHTML = '<span class="green">🎉 備份成功！設定檔已加密儲存至 Notion。</span>';
+    } else {
+      $("configSyncStatus").innerHTML = `<span class="red">備份失敗：${result.error || "未知錯誤"}</span>`;
+    }
+  } catch (error) {
+    $("configSyncStatus").innerHTML = `<span class="red">連線失敗：${error.message}</span>`;
+  }
+});
+
+$("restoreConfigBtn").addEventListener("click", async () => {
+  if(!state.notion.token || !state.notion.databaseId){
+    $("configSyncStatus").innerHTML = '<span class="red">請先填入並儲存 Token 與 Database ID。</span>';
+    return;
+  }
+  
+  if(!confirm("確定要從 Notion 載入雲端設定嗎？這會覆蓋您目前瀏覽器的本地預算、稅金、儲蓄計畫與自訂分類。")) return;
+  
+  $("configSyncStatus").textContent = "正在從 Notion 下載並還原配置...";
+  
+  try {
+    const response = await fetch("/api/notion", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: state.notion.token,
+        databaseId: state.notion.databaseId,
+        action: "load_state"
+      })
+    });
+    
+    const result = await response.json();
+    if (response.ok && result.success) {
+      if (result.stateStr) {
+        const pulled = JSON.parse(result.stateStr);
+        state.base = pulled.base || state.base;
+        state.taxItems = pulled.taxItems || state.taxItems;
+        state.investments = pulled.investments || state.investments;
+        state.etf = pulled.etf || state.etf;
+        state.settlementCategories = pulled.settlementCategories || state.settlementCategories;
+        
+        save(true);
+        renderAll();
+        $("configSyncStatus").innerHTML = '<span class="green">🎉 載入成功！您的專屬財務配置已完全還原同步。</span>';
+      } else {
+        $("configSyncStatus").innerHTML = '<span class="red">下載失敗：Notion 中找不到任何已備份的設定。請先在庫存完備的舊裝置點擊「備份設定到 Notion」。</span>';
+      }
+    } else {
+      $("configSyncStatus").innerHTML = `<span class="red">載入失敗：${result.error || "未知錯誤"}</span>`;
+    }
+  } catch (error) {
+    $("configSyncStatus").innerHTML = `<span class="red">連線失敗：${error.message}</span>`;
+  }
 });
 
 initDateSelectors();
